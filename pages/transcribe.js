@@ -71,16 +71,21 @@ const ListItemTitle = styled.span`
 `;
 
 const Image = styled.img`
-	filter: ${props => `invert(${props.inversion})`};
+	filter: ${props => `invert(${props.inversion}) contrast(${props.contrast}%) brightness(${props.brightness})`};
 `;
 
-const InversionSlider = styled.div`
+const SliderWrapper = styled.div`
 	position: relative;
 	display: flex;
 	flex-direction: row;
 	align-items: center;
-	padding: ${baseline(2)} 0;
+	justify-content: space-between;
+	padding: ${baseline(1)} 0;
 	font-size: 1.8rem;
+
+	@media ${breakpoints.medium} {
+		max-width: 80%;
+	}
 `;
 
 const Actions = styled.div`
@@ -126,6 +131,38 @@ const ValidationMessage = styled.div`
 	margin-bottom: ${baseline(-2)};
 `;
 
+const SliderTitle = styled.h4`
+	margin-bottom: 0;
+`;
+
+const ExternalImage = styled.div`
+	border: 1px solid #d2d2d2;
+	border-radius: 3px;
+	width: 100%;
+	margin: ${baseline(1)};
+	padding: ${baseline(1)};
+	background: #232323;
+
+	@media ${breakpoints.medium} {
+		width: 50%;
+		margin-left: auto;
+		margin-right: auto;
+	}
+`;
+
+const ExternalImageTitle = styled.div`
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-bottom: ${baseline(0.5)};
+	color: #b78c25;
+`;
+
+const ExternalImageIcon = styled(Icon)`
+	font-size: 1.8rem;
+	margin-right: ${baseline(1)};
+`;
+
 const defaultFlags = {
 	badQuality: false,
 	isRotated: false
@@ -140,7 +177,10 @@ const defaultData = {
 const Transcribe = () => {
 	const [data, setData] = useState(defaultData);
 	const [loading, setLoading] = useState(true);
+	const [isReporting, setReporting] = useState(false);
 	const [inversion, setInversion] = useState(0);
+	const [brightness, setBrightness] = useState(1);
+	const [contrast, setContrast] = useState(100);
 	const [additionalFlags, setAdditionalFlags] = useState(defaultFlags);
 
 	const isValidJSON = jsonString =>
@@ -159,35 +199,59 @@ const Transcribe = () => {
 
 	const fetchImage = () => {
 		setLoading(true);
-		fetch("/api/image")
+		fetch("api/get-sequence")
 			.then(res => res.json())
 			.then(setData)
 			.then(() => setLoading(false))
 			.catch(console.log);
 	};
 
+	const reportImage = () => {
+		setReporting(true);
+		fetch("api/report-sequence", {
+			body: JSON.stringify({ imageID: data.id }),
+			method: "POST",
+			headers: { "Content-Type": "application/json" }
+		})
+			.then(res => res.json())
+			.then(fetchImage)
+			.then(setReporting(false))
+			.catch(console.log);
+	};
+
 	const onSubmit = ({ sequence }, formikBag) => {
 		const s = JSON.parse(sequence);
-		const body = {
+		let body = {
 			bad_image: additionalFlags.badQuality,
 			...(additionalFlags.isRotated && { orientation: "wrong" }),
-			puzzlePiece: data.id,
-			center: s.center,
-			wall1: s.walls[0],
-			wall2: s.walls[1],
-			wall3: s.walls[2],
-			wall4: s.walls[3],
-			wall5: s.walls[4],
-			wall6: s.walls[5],
-			link1: s.nodes[0].join(""),
-			link2: s.nodes[1].join(""),
-			link3: s.nodes[2].join(""),
-			link4: s.nodes[3].join(""),
-			link5: s.nodes[4].join(""),
-			link6: s.nodes[5].join("")
+			puzzlePiece: data.id
 		};
+		if (!additionalFlags.badQuality) {
+			body = {
+				bad_image: additionalFlags.badQuality,
+				...(additionalFlags.isRotated && { orientation: "wrong" }),
+				puzzlePiece: data.id,
+				center: s.center,
+				wall1: s.walls[0],
+				wall2: s.walls[1],
+				wall3: s.walls[2],
+				wall4: s.walls[3],
+				wall5: s.walls[4],
+				wall6: s.walls[5],
+				link1: s.nodes[0].join(""),
+				link2: s.nodes[1].join(""),
+				link3: s.nodes[2].join(""),
+				link4: s.nodes[3].join(""),
+				link5: s.nodes[4].join(""),
+				link6: s.nodes[5].join("")
+			};
+		}
 		formikBag.setSubmitting(true);
-		fetch("/api/image", { body: JSON.stringify(body), method: "POST", headers: { "Content-Type": "application/json" } })
+		fetch("api/submit-sequence", {
+			body: JSON.stringify(body),
+			method: "POST",
+			headers: { "Content-Type": "application/json" }
+		})
 			.then(res => res.json())
 			.then(() => {
 				formikBag.resetForm();
@@ -337,18 +401,21 @@ const Transcribe = () => {
 							</GutteredRow>
 							<GutteredRow>
 								<Col sm={24} lg={12}>
-									<Button type="primary" htmlType="submit">
-										Submit Sequence
-									</Button>
+									<Actions>
+										<Button type="primary" htmlType="submit">
+											Submit Sequence
+										</Button>
+									</Actions>
 								</Col>
 							</GutteredRow>
 						</form>
 					</Col>
 					<Col sm={24} lg={12}>
-						<h3>Image Inversion</h3>
-						<p>Having trouble seeing the sequence. Try the inversion slider below:</p>
-						<InversionSlider>
-							<Icon type="sliders" theme="filled" style={{ paddingRight: baseline(1) }} />
+						<h3>Image Filters</h3>
+						<p>Having trouble seeing the sequence? Try the sliders below:</p>
+
+						<SliderWrapper>
+							<SliderTitle>Inversion</SliderTitle>
 							<Slider
 								style={{ width: "100%", maxWidth: "400px" }}
 								defaultValue={inversion}
@@ -357,14 +424,38 @@ const Transcribe = () => {
 								step={0.1}
 								onChange={setInversion}
 							/>
-						</InversionSlider>
+						</SliderWrapper>
+						<SliderWrapper>
+							<SliderTitle>Brightness</SliderTitle>
+							<Slider
+								style={{ width: "100%", maxWidth: "400px" }}
+								defaultValue={brightness}
+								min={0}
+								max={2}
+								step={0.1}
+								onChange={setBrightness}
+							/>
+						</SliderWrapper>
+						<SliderWrapper>
+							<SliderTitle>Contrast</SliderTitle>
+							<Slider
+								style={{ width: "100%", maxWidth: "400px" }}
+								defaultValue={contrast}
+								min={0}
+								max={200}
+								step={10}
+								onChange={setContrast}
+							/>
+						</SliderWrapper>
 						<Divider />
 						<h3>Additional Actions</h3>
 						<Actions>
 							<Button type="primary" onClick={fetchImage}>
 								Display New Image
 							</Button>
-							{false && <Button type="negative">Report Current Image</Button>}
+							<Button type="negative" onClick={reportImage} isDisabled={!data.id || isReporting}>
+								Report Current Image
+							</Button>
 						</Actions>
 					</Col>
 				</ContentRow>
@@ -372,13 +463,35 @@ const Transcribe = () => {
 					<Col lg={24}>
 						{!loading && (
 							<ImageWrapper>
-								<ImageOverlay>
-									<LinkWrapper href={data.url} target="_blank" rel="noopener noreferrer">
-										<ListIcon type="zoom-in" />
-										View Larger Image
-									</LinkWrapper>
-								</ImageOverlay>
-								<Image inversion={inversion} src={data.url} alt="" />
+								{data.isImage && (
+									<span>
+										<ImageOverlay>
+											<LinkWrapper href={data.url} target="_blank" rel="noopener noreferrer">
+												<ListIcon type="zoom-in" />
+												View Larger Image
+											</LinkWrapper>
+										</ImageOverlay>
+										<Image inversion={inversion} brightness={brightness} contrast={contrast} src={data.url} alt="" />
+									</span>
+								)}
+								{!data.isImage && (
+									<ExternalImage>
+										<ExternalImageTitle>
+											<ExternalImageIcon type="flag" theme="filled" />
+											<span>External Image</span>
+										</ExternalImageTitle>
+										<p>Looks like this submission is hosted on an external site.</p>
+										<p>Please click below to view it.</p>
+										<a
+											href={data.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											style={{ display: "block", textAlign: "center" }}
+										>
+											<Button type="primary">View External Image</Button>
+										</a>
+									</ExternalImage>
+								)}
 							</ImageWrapper>
 						)}
 					</Col>
